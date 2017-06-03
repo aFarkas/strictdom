@@ -261,7 +261,7 @@ StrictDom.prototype = {
       self.isInRaf = false;
 
       if(self.enabled){
-        requestAnimationFrame(onRaf);
+        this.win.requestAnimationFrame(onRaf);
       }
     };
 
@@ -307,6 +307,9 @@ StrictDom.prototype = {
     if(!this.isInRaf){
       this.logError(0, 'Layout was written outside of rAF');
     }
+
+    this.states.forced = false;
+    this.states.thrashed = false;
   },
 
   onMeasure: function(info){
@@ -314,13 +317,13 @@ StrictDom.prototype = {
 
     this.states.forced = info || true;
 
-
-
     if(this.isInRaf){
       this.logError(-1, 'Layout was read inside of rAF');
     }
 
     this.logError(1, 'Layout was forced');
+
+      this.states.invalidated = false;
   },
 
   /**
