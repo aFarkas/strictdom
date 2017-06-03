@@ -323,7 +323,7 @@ StrictDom.prototype = {
 
     this.logError(1, 'Layout was forced');
 
-      this.states.invalidated = false;
+    this.states.invalidated = false;
   },
 
   /**
