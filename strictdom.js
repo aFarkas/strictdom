@@ -27,26 +27,17 @@ var properties = {
     Node: {
       appendChild: {
         type: Mutate,
-        test: function(dom, parent, args) {
-          var attached = isAttached(parent) || isAttached(args[0]);
-          if (attached && dom.not('mutate')) throw error(3, this.name);
-        }
+        test: getParentMutateTest('appendChild'),
       },
 
       insertBefore: {
         type: Mutate,
-        test: function(dom, parent, args) {
-          var attached = isAttached(parent) || isAttached(args[0]);
-          if (attached && dom.not('mutate')) throw error(3, this.name);
-        }
+        test: getParentMutateTest('insertBefore'),
       },
 
       removeChild: {
         type: Mutate,
-        test: function(dom, parent, args) {
-          var attached = isAttached(parent) || isAttached(args[0]);
-          if (attached && dom.not('mutate')) throw error(3, this.name);
-        }
+        test: getParentMutateTest('removeChild'),
       },
 
       textContent: Mutate
@@ -158,8 +149,11 @@ var properties = {
          * @param  {Object} args
          */
         test: function(strictdom, win, args) {
-          if (isAttached(args[0]) && strictdom.not('measure')) {
-            throw error(2, 'getComputedStyle');
+          if (isAttached(args[0])) {
+            strictdom.onMeasure({
+              el: args[0],
+              type: 'getComputedStyle',
+            });
           }
         }
       },
@@ -207,6 +201,17 @@ var properties = {
   }
 };
 
+function getParentMutateTest(type){
+  return function testMutate(strictdom, parent, args) {
+    if(isAttached(parent) || isAttached(args[0])){
+      strictdom.onMutate({
+        ctxArgs: [parent, args[0]],
+        type: type,
+      });
+    }
+  };
+}
+
 /**
  * The master controller for all properties.
  *
@@ -217,41 +222,105 @@ function StrictDom(win) {
   this._phase = null;
   this.win = win;
 
+  this.logLevel = 0;
+  this.throwLevel = 2;
+  this.states = {};
+
   this.createPrototypeProperties();
   this.createInstanceProperties();
+  this.overrideRaf();
 }
 
 StrictDom.prototype = {
 
-  /**
-   * Set the current phase.
-   * @param  {[type]} value [description]
-   * @return {[type]}       [description]
-   */
-  phase: function(type, task) {
-    if (!arguments.length) return this._phase;
-    if (!this.knownPhase(type)) throw error(4, type);
+  overrideRaf: function(){
+    var self = this;
+    var rAF = this.win.requestAnimationFrame;
+    var setRafStart = function () {
+      self.isInRaf = true;
+    };
 
-    var previous = this._phase;
-    this._phase = type;
+    this.win.requestAnimationFrame = function(){
+      if(self.enabled && !self.states.rafStart){
+        rAF(setRafStart);
+        self.states.rafStart = true;
+      }
 
-    if (typeof task != 'function') return;
-
-    var result = task();
-    this._phase = previous;
-    return result;
+      return rAF.apply(this, arguments);
+    };
   },
 
-  knownPhase: function(value) {
-    return !!~['measure', 'mutate', null].indexOf(value);
+  startRaf: function(){
+    var self = this;
+    var onRaf = function(){
+      self.isInRaf = true;
+      setTimeout(startNewCycle, 0);
+    };
+    var startNewCycle = function(){
+      self.states = {};
+      self.isInRaf = false;
+
+      if(self.enabled){
+        requestAnimationFrame(onRaf);
+      }
+    };
+
+    startNewCycle();
   },
 
-  is: function(value) {
-    return this._phase === value;
+  logError: function(prio, error){
+    if(prio < this.logLevel){
+      return;
+    }
+
+    var states = this.states;
+    var args = [error];
+
+    ['thrashed', 'forced', 'invalidated'].forEach(function(state){
+      if(states[state]){
+        args.push(state + ': ', states[state]);
+      }
+    });
+
+    window.console.error.apply(window.console, args);
+
+    if(prio >= this.throwLevel){
+      throw new Error(error);
+    }
   },
 
-  not: function(value) {
-    return !this.is(value);
+  onMutate: function(info){
+    if(!info){
+      info = true;
+    }
+
+    if(this.states.forced){
+      this.states.thrashed = info;
+    } else {
+      this.states.invalidated = info;
+    }
+
+    if(this.states.forced){
+      this.logError(2, 'Layout was thrashed');
+    }
+
+    if(!this.isInRaf){
+      this.logError(0, 'Layout was written outside of rAF');
+    }
+  },
+
+  onMeasure: function(info){
+    if(!this.states.invalidated){return;}
+
+    this.states.forced = info || true;
+
+
+
+    if(this.isInRaf){
+      this.logError(-1, 'Layout was read inside of rAF');
+    }
+
+    this.logError(1, 'Layout was forced');
   },
 
   /**
@@ -265,6 +334,8 @@ StrictDom.prototype = {
     var i = this.properties.length;
     while (i--) this.properties[i].enable();
     this.enabled = true;
+
+    this.startRaf();
   },
 
   /**
@@ -464,8 +535,12 @@ Measure.prototype = extend(Property, {
    * @param  {Node} ctx
    */
   test: function(strictdom, ctx) {
-    if (isAttached(ctx || window) && strictdom.not('measure')) {
-      throw error(2, this.name);
+    if (isAttached(ctx || window)) {
+      strictdom.onMeasure({
+        ctx: ctx,
+        name: this.name,
+        args: arguments,
+      });
     }
   }
 });
@@ -530,8 +605,12 @@ Mutate.prototype = extend(Property, {
    * @param  {Node} ctx
    */
   test: function(strictdom, ctx) {
-    if (isAttached(ctx || window) && strictdom.not('mutate')) {
-      throw error(3, this.name);
+    if (isAttached(ctx || window)) {
+      strictdom.onMutate({
+        ctx: ctx,
+        name: this.name,
+        args: arguments,
+      });
     }
   }
 });
@@ -705,14 +784,27 @@ StrictStyle.prototype = {
   },
 
   setProperty: function(key, value) {
-    var illegal = isAttached(this.el) && this.strictdom.not('mutate');
-    if (illegal) throw error(1, 'style.' + key);
+    if(isAttached(this.el)){
+      this.strictdom.onMutate({
+        el: this.el,
+        key: key,
+        value: value,
+        type: 'style',
+        ctx: this,
+      });
+    }
     return this._get()[key] = value;
   },
 
   removeProperty: function(key) {
-    var illegal = isAttached(this.el) && this.strictdom.not('mutate');
-    if (illegal) throw error(1, 'style.' + key);
+    if(isAttached(this.el)){
+      this.strictdom.onMutate({
+        el: this.el,
+        key: key,
+        type: 'removeStyle',
+        ctx: this,
+      });
+    }
     return this._get().removeProperty(key);
   }
 };
@@ -775,8 +867,15 @@ StrictClassList.prototype = {
   _get: function() { return this._getter.call(this.el); },
 
   add: function(className) {
-    var illegal = isAttached(this.el) && this.strictdom.not('mutate');
-    if (illegal) throw error(1, 'class names');
+
+    if(isAttached(this.el)){
+      this.strictdom.onMutate({
+        el: this.el,
+        addClass: className,
+        ctx: this,
+      });
+    }
+
     this._get().add(className);
   },
 
@@ -785,14 +884,24 @@ StrictClassList.prototype = {
   },
 
   remove: function(className) {
-    var illegal = isAttached(this.el) && this.strictdom.not('mutate');
-    if (illegal) throw error(1, 'class names');
+    if(isAttached(this.el)){
+      this.strictdom.onMutate({
+        el: this.el,
+        removeClass: className,
+        ctx: this,
+      });
+    }
     this._get().remove(className);
   },
 
   toggle: function() {
-    var illegal = isAttached(this.el) && this.strictdom.not('mutate');
-    if (illegal) throw error(1, 'class names');
+    if(isAttached(this.el)){
+      this.strictdom.onMutate({
+        el: this.el,
+        toggleClass: arguments,
+        ctx: this,
+      });
+    }
     var classList = this._get();
     return classList.toggle.apply(classList, arguments);
   }
@@ -801,15 +910,6 @@ StrictClassList.prototype = {
 /**
  * Utils
  */
-
-function error(type) {
-  return new Error({
-    1: 'Can only set ' + arguments[1] + ' during \'mutate\' phase',
-    2: 'Can only get ' + arguments[1] + ' during \'measure\' phase',
-    3: 'Can only call `.' + arguments[1] + '()` during \'mutate\' phase',
-    4: 'Invalid phase: ' + arguments[1]
-  }[type]);
-}
 
 function getDescriptor(object, prop) {
   return Object.getOwnPropertyDescriptor(object, prop);
@@ -820,7 +920,7 @@ function extend(parent, props) {
 }
 
 function isAttached(el) {
-  return el === window || document.contains(el);
+  return el === window || !(el instanceof window.Node ) || document.contains(el);
 }
 
 /**
