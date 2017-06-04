@@ -261,7 +261,7 @@ StrictDom.prototype = {
       self.isInRaf = false;
 
       if(self.enabled){
-        this.win.requestAnimationFrame(onRaf);
+          self.win.requestAnimationFrame(onRaf);
       }
     };
 
@@ -294,10 +294,10 @@ StrictDom.prototype = {
       info = true;
     }
 
+    this.states.invalidated = info;
+
     if(this.states.forced){
       this.states.thrashed = info;
-    } else {
-      this.states.invalidated = info;
     }
 
     if(this.states.forced){
