@@ -844,8 +844,13 @@ StrictStyle.prototype = {
 
   function setter(key) {
     return function(value) {
-      var illegal = isAttached(this.el) && this.strictdom.not('mutate');
-      if (illegal) throw error(1, 'style.' + key);
+      if(isAttached(this.el)){
+          this.strictdom.onMutate({
+              el: this.el,
+              style: key +': '+ value
+          });
+      }
+
       return this.setProperty(key, value);
     };
   }
