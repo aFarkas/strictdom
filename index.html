@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Title</title>
+</head>
+<body>
+	<script src="strictdom.js"></script>
+	<script>
+		strictdom.enable();
+		strictdom.throwLevel = 5;
+	</script>
+	<script>
+		var height = document.body.clientHeight;
+
+		document.body.appendChild(document.createElement('div'));
+
+        var height = document.body.clientHeight;
+
+        document.body.appendChild(document.createElement('div'));
+
+        var height = document.body.clientHeight;
+//
+        document.body.appendChild(document.createElement('div'));
+	</script>
+</body>
+</html>
