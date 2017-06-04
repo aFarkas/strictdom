@@ -219,7 +219,6 @@ function getParentMutateTest(type){
  */
 function StrictDom(win) {
   this.properties = [];
-  this._phase = null;
   this.win = win;
 
   this.logLevel = 0;
@@ -241,9 +240,8 @@ StrictDom.prototype = {
     };
 
     this.win.requestAnimationFrame = function(){
-      if(self.enabled && !self.states.rafStart){
+      if(self.enabled){
         rAF(setRafStart);
-        self.states.rafStart = true;
       }
 
       return rAF.apply(this, arguments);
